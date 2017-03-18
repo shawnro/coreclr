@@ -14,12 +14,16 @@ set PROJECT_JSON_FILE=%PROJECT_JSON_PATH%\project.json
 set PROJECT_JSON_CONTENTS={ "dependencies": { "Microsoft.DotNet.BuildTools": "%BUILDTOOLS_VERSION%" , "Microsoft.DotNet.BuildTools.Coreclr": "1.0.4-prerelease"}, "frameworks": { "dnxcore50": { } } }
 set BUILD_TOOLS_SEMAPHORE=%PROJECT_JSON_PATH%\init-tools.completed0
 set TOOLS_INIT_RETURN_CODE=0
+set NUGET_PATH=%PACKAGES_DIR%NuGet.exe
 
 :: if force option is specified then clean the tool runtime and build tools package directory to force it to get recreated
 if [%1]==[force] (
   if exist "%TOOLRUNTIME_DIR%" rmdir /S /Q "%TOOLRUNTIME_DIR%"
   if exist "%PACKAGES_DIR%Microsoft.DotNet.BuildTools" rmdir /S /Q "%PACKAGES_DIR%Microsoft.DotNet.BuildTools"
 )
+
+:: if dependency option is specified then check the dependency is installed and if not, install it
+if [%1]==[dependency] for /f "tokens=1,* delims= " %%i in ("%*") do call :EnsureDependency %%j || exit /b %ERRORLEVEL%
 
 :: If sempahore exists do nothing
 if exist "%BUILD_TOOLS_SEMAPHORE%" (
@@ -29,11 +33,7 @@ if exist "%BUILD_TOOLS_SEMAPHORE%" (
 
 if exist "%TOOLRUNTIME_DIR%" rmdir /S /Q "%TOOLRUNTIME_DIR%"
 
-:: Download Nuget.exe
-if NOT exist "%PACKAGES_DIR%NuGet.exe" (
-  if NOT exist "%PACKAGES_DIR%" mkdir "%PACKAGES_DIR%"
-  powershell -NoProfile -ExecutionPolicy unrestricted -Command "(New-Object Net.WebClient).DownloadFile('https://www.nuget.org/nuget.exe', '%PACKAGES_DIR%NuGet.exe')
-)
+call :DownloadNuGet
 
 if NOT exist "%PROJECT_JSON_PATH%" mkdir "%PROJECT_JSON_PATH%"
 echo %PROJECT_JSON_CONTENTS% > "%PROJECT_JSON_FILE%"
@@ -87,4 +87,76 @@ echo Init-Tools.cmd completed for BuildTools Version: %BUILDTOOLS_VERSION% > "%B
 
 :DONE
 
+:: if we need to update PATH, endlocal and update so it carries forward
+if defined DEPENDENCY_ADD_PATH endlocal & echo Adding "%DEPENDENCY_ADD_PATH%" to PATH & set PATH=%DEPENDENCY_ADD_PATH%;%PATH%
+
 exit /b %TOOLS_INIT_RETURN_CODE%
+
+:DownloadNuGet
+if NOT exist "%NUGET_PATH%" (
+  for /f %%i in ("%NUGET_PATH%") do if NOT exist "%%~dpi" mkdir "%%~dpi"
+  powershell -NoProfile -ExecutionPolicy unrestricted -Command "(New-Object Net.WebClient).DownloadFile('https://www.nuget.org/nuget.exe', '%NUGET_PATH%')
+)
+goto :EOF
+
+:EnsureDependency
+if []==[%3] (
+  echo Usage: %~nx0 dependency [name] [source.package] [version] ^<target:[installPath]^> ^<addpath:^<fileName^>^>
+  goto :EOF
+)
+
+set DEPENDENCY_TARGET=%PACKAGES_DIR:~0,-1%
+set DEPENDENCY_NAME=%1
+for /f "tokens=1,* delims=." %%i in ("%2") do (
+  set DEPENDENCY_SOURCE=%%i
+  set DEPENDENCY_PACKAGE=%%j
+) 
+set DEPENDENCY_VERSION=%3
+
+:OptionalArgLoop
+if NOT []==[%4] (
+  for /f "tokens=1,* delims=:" %%i in ("%4") do (
+    if [target]==[%%i] set DEPENDENCY_TARGET=%%j& shift /4 & goto :OptionalArgLoop
+    if [addpath]==[%%i] set DEPENDENCY_ADD_PATH=%%j& shift /4 goto :OptionalArgLoop
+  )
+)
+
+echo Installing %DEPENDENCY_NAME% %DEPENDENCY_VERSION% from %DEPENDENCY_SOURCE% to "%DEPENDENCY_TARGET%" ...
+
+call :CASE_%DEPENDENCY_SOURCE% || call :CASE_DEFAULT
+goto :SKIP_CASE
+
+:CASE_NUGET
+  call :NuGetInstall || exit /b %ERRORLEVEL%
+  goto :END_CASE
+:CASE_DEFAULT
+  echo Unknown dependency source "%DEPENDENCY_SOURCE%"
+  goto END_CASE
+:END_CASE
+  ver> nul
+  goto :EOF
+:SKIP_CASE
+
+:: nothing to add to PATH, exit early
+if not defined DEPENDENCY_ADD_PATH exit /b 0
+
+:: search for path to file and set that path as the one to add to PATH
+for /f "tokens=*" %%i in ('dir /b /s "%DEPENDENCY_TARGET%\%DEPENDENCY_ADD_PATH%"') do set DEPENDENCY_ADD_PATH=%%~dpi
+
+:: if location already exists in PATH, don't add it again
+echo %PATH% | find /i "%DEPENDENCY_ADD_PATH%"> nul && set DEPENDENCY_ADD_PATH=
+
+exit /b 0
+
+:NuGetInstall  
+call :DownloadNuGet
+set INSTALL_CMD="%NUGET_PATH%" install "%DEPENDENCY_PACKAGE%" -version "%DEPENDENCY_VERSION%" -outputdirectory "%DEPENDENCY_TARGET%"
+echo Running: %INSTALL_CMD% >> "%INIT_TOOLS_LOG%"
+%INSTALL_CMD% >> "%INIT_TOOLS_LOG%"
+set INSTALL_DEPENDENCY_ERRORLEVEL=%ERRORLEVEL%
+if %INSTALL_DEPENDENCY_ERRORLEVEL% GEQ 1 (
+  echo ERROR: Failed to install %DEPENDENCY_NAME% {Error level %INSTALL_DEPENDENCY_ERRORLEVEL%}. Please check '%INIT_TOOLS_LOG%' for more details. 1>&2
+  exit /b %INSTALL_DEPENDENCY_ERRORLEVEL%
+)
+goto :EOF
+

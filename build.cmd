@@ -224,6 +224,17 @@ REM ============================================================================
 echo %__MsgPrefix%Using environment: "%__VSToolsRoot%\VsDevCmd.bat"
 call                                 "%__VSToolsRoot%\VsDevCmd.bat"
 
+REM if Python is not already on PATH, install it and add it to PATH
+where /q python || (
+    @call %__ProjectDir%\init-tools.cmd dependency Python NuGet.python2 2.7.12 target:%__PackagesDir% addpath:python.exe
+)
+
+REM if Python is not on PATH, install failed - don't continue
+where /q python ||   (
+    echo %__MsgPrefix%Error: Python not found on PATH, please make sure that it is installed.
+    exit /b 1
+)
+
 @call %__ProjectDir%\run.cmd build -Project=%__ProjectDir%\build.proj -generateHeaderWindows -NativeVersionHeaderFile="%__RootBinDir%\obj\_version.h" %__RunArgs% %__UnprocessedBuildArgs% 
 
 REM =========================================================================================
@@ -233,10 +244,6 @@ REM ===
 REM =========================================================================================
 
 REM Parse the package version out of project.json so that we can pass it on to CMake
-where /q python || (
-    echo %__MsgPrefix%Error: Python not found on PATH, please make sure that it is installed.
-    exit /b 1
-)
 set OptDataProjectJsonPath=%__ProjectDir%\src\.nuget\optdata\project.json
 if EXIST "%OptDataProjectJsonPath%" (
     for /f "tokens=*" %%s in ('python "%__ProjectDir%\extract-from-json.py" -rf "%OptDataProjectJsonPath%" dependencies optimization.PGO.CoreCLR') do @(
