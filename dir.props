@@ -110,6 +110,11 @@
     <BuildVersionFile>$(BaseIntermediateOutputPath)BuildVersion-$(OfficialBuildId).props</BuildVersionFile>
   </PropertyGroup>
 
+  <!-- Work around hard coded Import in FrameworkTargeting.targets that fails if MSBuild targets aren't installed -->
+  <PropertyGroup>
+    <MSBuildExtensionsPath32 Condition="'$(PortableBuild)' == 'true'">$(MSBuildThisFileDirectory)\Tools</MSBuildExtensionsPath32>
+  </PropertyGroup>
+
   <!-- Import Build tools common props file where repo-independent properties are found -->
   <Import Condition="Exists('$(ToolsDir)Build.Common.props')" Project="$(ToolsDir)Build.Common.props" />
 

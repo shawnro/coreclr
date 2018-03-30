@@ -4,6 +4,7 @@ syntax: glob
 
 # Build tools related files
 /[Tt]ools/
+/[Pp]rereqs/
 
 ### VisualStudio ###
 

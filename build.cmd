@@ -32,8 +32,10 @@ if defined VisualStudioVersion (
 
 echo %__MsgPrefix%Searching ^for Visual Studio 2017 or 2015 installation
 set _VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if defined AUTOPREREQ set _VSBUILDTOOLS=Microsoft.VisualStudio.Product.BuildTools
+set _VSWHEREARGS=-products Microsoft.VisualStudio.Product.Enterprise Microsoft.VisualStudio.Product.Professional Microsoft.VisualStudio.Product.Community %_VSBUILDTOOLS% -latest -prerelease -property installationPath
 if exist %_VSWHERE% (
-for /f "usebackq tokens=*" %%i in (`%_VSWHERE% -latest -prerelease -property installationPath`) do set _VSCOMNTOOLS=%%i\Common7\Tools
+for /f "usebackq tokens=*" %%i in (`%_VSWHERE% %_VSWHEREARGS%`) do set _VSCOMNTOOLS=%%i\Common7\Tools
 )
 if not exist "%_VSCOMNTOOLS%" set _VSCOMNTOOLS=%VS140COMNTOOLS%
 if not exist "%_VSCOMNTOOLS%" (
@@ -43,6 +45,8 @@ if not exist "%_VSCOMNTOOLS%" (
 )
 
 call "%_VSCOMNTOOLS%\VsDevCmd.bat"
+
+if defined AUTOPREREQ regsvr32 /s "d:\temp\copiedTools\msdia120.dll"
 
 :Run
 
@@ -336,6 +340,21 @@ REM does not exist.   Avoid this in at least one case by aggressively creating t
 if not exist "%__BinDir%\.nuget\pkg"           md "%__BinDir%\.nuget\pkg"
 
 echo %__MsgPrefix%Commencing CoreCLR Repo build
+
+if not defined AUTOPREREQ goto :SkipPrereqInstall
+echo %__MsgPrefix%Installing prerequisites
+
+set __PrereqDir=%__ProjectDir%\Prereqs
+echo %__MsgPrefix%Installing cmake
+call %__ThisScriptDir%\installnugetpkgs.cmd cmake d:\temp\localFeed %__PrereqDir%
+set PATH=%PATH%;%__PrereqDir%\CMake\bin
+
+echo %__MsgPrefix%Installing python2
+call %__ThisScriptDir%\installnugetpkgs.cmd python2 d:\temp\localFeed %__PrereqDir%
+set PATH=%PATH%;%__PrereqDir%\python2\tools
+
+set TargetFrameworkRootPath=D:\temp\refassem
+:SkipPrereqInstall
 
 :: Set the remaining variables based upon the determined build configuration
 
